@@ -7,10 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/10bUhcRcQtAZDtzwV7Fdqz_RAuw5TfEVo
 """
 
-# Mounting Google Drive to access data
-from google.colab import drive
-drive.mount('/content/drive')
-
 # Loading data
 import pandas as pd
 train = pd.read_csv("/content/drive/My Drive/Semester7/ML/Project/Layer_7/train.csv")
@@ -146,9 +142,9 @@ print(len(corr))
 
 corr
 
-x_label_1.drop(corr, axis = 1)
+x_label_1 = x_label_1.drop(corr, axis = 1)
 
-x_valid_label_1.drop(corr, axis = 1)
+x_valid_label_1 = x_valid_label_1.drop(corr, axis = 1)
 
 """###Mutual Information Classification"""
 
@@ -156,30 +152,22 @@ from sklearn.feature_selection import mutual_info_classif
 
 def plot_mi(x: pd.DataFrame, y: pd.DataFrame) -> pd.Series:
   mi = pd.Series(mutual_info_classif(x, y))
-  mi.sort_values(ascending=False).plot.bar(figsize=(32, 12))
+  mi = mi.sort_values(ascending=False)
+  mi.plot.bar(figsize=(32, 12))
   return mi
 
-mi = plot_mi(x_label_1, y_label_1)
+mi_label_1 = plot_mi(x_label_1, y_label_1)
 
 """Observing the distribution of the graph, selecting features with mutual information scre greater than 0.06."""
 
-def feature_selection_cnt_mi(mi: pd.Series, threshold: float) -> int:
-  no_of_selected_features = mi[mi > threshold].count()
-  print (f"Selected {no_of_selected_features} features out of {len(mi)} features.")
-  return no_of_selected_features
+def feature_selection_mi(mi: pd.Series, x: pd.DataFrame, threshold: float) -> pd.DataFrame:
+  selected_features = mi_label_1[mi_label_1 > threshold]
+  print (f"Selected {selected_features.count()} features out of {len(mi_label_1)} features.")
+  selected_cols = x.columns[selected_features.index]
+  print(selected_cols)
+  return selected_cols
 
-no_of_selected_features_label_1 = feature_selection_cnt_mi(mi, 0.06)
-
-from sklearn.feature_selection import SelectKBest
-
-def feature_selection_mi(x: pd.DataFrame, y: pd.DataFrame, k: int) -> pd.DataFrame:
-  selected_cols = SelectKBest(mutual_info_classif, k = k)
-  selected_cols.fit(x, y)
-  selected_col_names = x.columns[selected_cols.get_support()]
-  print(selected_col_names)
-  return selected_col_names
-
-selected_col_names_label_1 = feature_selection_mi(x_label_1, y_label_1, no_of_selected_features_label_1)
+selected_col_names_label_1 = feature_selection_mi(mi_label_1, x_label_1, 0.06)
 
 x_label_1_selected = pd.DataFrame(x_label_1, columns = selected_col_names_label_1)
 x_valid_label_1_selected = pd.DataFrame(x_valid_label_1, columns = selected_col_names_label_1)
@@ -189,10 +177,10 @@ x_valid_label_1_selected = pd.DataFrame(x_valid_label_1, columns = selected_col_
 ###Model Evaluation
 """
 
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, classification_report
 import numpy as np
 
-def eval_model(y_actual: pd.DataFrame, y_predicted: pd.DataFrame) -> float:
+def eval_model(y_actual: pd.DataFrame, y_predicted: pd.DataFrame, print_metrics = False) -> float:
   cm = confusion_matrix(y_actual, y_predicted)
   fp = cm.sum(axis=0) - np.diag(cm)
   fn = cm.sum(axis=1) - np.diag(cm)
@@ -208,14 +196,24 @@ def eval_model(y_actual: pd.DataFrame, y_predicted: pd.DataFrame) -> float:
   recall = sensitivity
   f_score = (2 * precision * recall) / (precision + recall)
 
-  print(f"Accuracy:      {accuracy[0]:.4f}")
-  print(f"Error Rate:    {err_rate[0]:.4f}")
-  print(f"Sensitivity:   {sensitivity[0]:.4f}")
-  print(f"Specificity:   {specificity[0]:.4f}")
-  print(f"Precision:     {precision[0]:.4f}")
-  print(f"F1 Score:      {f_score[0]:.4f}")
+  if (print_metrics):
+    print(f"Accuracy:      {accuracy.mean():.4f}")
+    print(f"Error Rate:    {err_rate.mean():.4f}")
+    print(f"Sensitivity:   {sensitivity.mean():.4f}")
+    print(f"Specificity:   {specificity.mean():.4f}")
+    print(f"Precision:     {precision.mean():.4f}")
+    print(f"F1 Score:      {f_score.mean():.4f}")
 
-  return f_score
+  return f_score.mean()
+
+from sklearn.model_selection import cross_val_score
+
+def scorer(estimator: any, X: pd.DataFrame, y: pd.DataFrame):
+  y_pred = estimator.predict(X)
+  f1_score = eval_model(y, y_pred)
+  return f1_score
+
+label_1_scores = []
 
 """###KNN Model"""
 
@@ -223,12 +221,16 @@ from sklearn.neighbors import KNeighborsClassifier
 
 def knn_model(x_train: pd.DataFrame, y_train: pd.DataFrame, x_valid: pd.DataFrame, y_valid: pd.DataFrame, k: int):
   knn = KNeighborsClassifier(n_neighbors = k)
+  f_score = cross_val_score(knn, x_train, y_train, cv = 5, scoring = scorer)
   knn.fit(x_train, y_train)
   y_pred = knn.predict(x_valid)
-  f_score = eval_model(y_valid, y_pred)
+  eval_model(y_valid, y_pred, True)
   return [knn, f_score]
 
-_, f_score_knn_label_1 = knn_model(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 13)
+knn_label_1, f_score_knn_label_1 = knn_model(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 13)
+avg_f1_score_knn_label_1 = f_score_knn_label_1.mean()
+print(f"Average F1 score of KNN cross validation: {avg_f1_score_knn_label_1}.")
+label_1_scores.append([knn_label_1, "KNN", avg_f1_score_knn_label_1])
 
 """###Random Forest Model"""
 
@@ -236,64 +238,83 @@ from sklearn.ensemble import RandomForestClassifier
 
 def rf_model(x_train: pd.DataFrame, y_train: pd.DataFrame, x_valid: pd.DataFrame, y_valid: pd.DataFrame, n_estimators: int, random_state: int):
   rf = RandomForestClassifier(n_estimators = n_estimators, random_state = random_state)
+  f_score = cross_val_score(rf, x_train, y_train, cv = 5, scoring = scorer)
   rf.fit(x_train, y_train)
   y_pred = rf.predict(x_valid)
-  f_score = eval_model(y_valid, y_pred)
+  eval_model(y_valid, y_pred, True)
   return [rf, f_score]
 
-_, f_score_rf_label_1 = rf_model(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 100, 42)
+rf_label_1, f_score_rf_label_1 = rf_model(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 100, 42)
+avg_f1_score_rf_label_1 = f_score_rf_label_1.mean()
+print(f"Average F1 score of RF cross validation: {avg_f1_score_rf_label_1}.")
+label_1_scores.append([rf_label_1, "Random Forest", avg_f1_score_rf_label_1])
 
 """###XG Boost Model"""
 
 import xgboost as xgb
+import torch
 
 def xgb_model_gpu(x_train, y_train, x_valid, y_valid, n_estimators, random_state):
-    try:
-        xgb_gpu = xgb.XGBClassifier(
-            n_estimators = n_estimators,
-            random_state = random_state,
-            tree_method = 'gpu_hist',
-            gpu_id = 0,
-        )
-        xgb_gpu.fit(x_train, y_train)
-        y_pred = xgb_gpu.predict(x_valid)
-        f_score = eval_model(y_valid, y_pred)
-        return [xgb_gpu, f_score]
-    except ValueError:
-        y_train_cpy = y_train.copy(deep=True)
-        y_valid_cpy = y_valid.copy(deep=True)
-        y_train_cpy = y_train_cpy - 1
-        y_valid_cpy = y_valid_cpy - 1
-        xgb_gpu = xgb.XGBClassifier(
-            n_estimators = n_estimators,
-            random_state = random_state,
-            tree_method = 'gpu_hist',
-            gpu_id = 0,
-        )
-        xgb_gpu.fit(x_train, y_train_cpy)
-        y_pred = xgb_gpu.predict(x_valid)
-        f_score = eval_model(y_valid_cpy, y_pred)
-        return [xgb_gpu, f_score]
+  y_train_cpy = y_train.copy(deep=True)
+  y_valid_cpy = y_valid.copy(deep=True)
+  y_train_cpy = y_train_cpy - 1
+  y_valid_cpy = y_valid_cpy - 1
 
-_, f_score_xgb_label_1 = xgb_model_gpu(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 50, 42)
+  xgb_gpu = None
+  if (torch.cuda.is_available()):
+    xgb_gpu = xgb.XGBClassifier(
+        n_estimators = n_estimators,
+        random_state = random_state,
+        tree_method = 'gpu_hist',
+        gpu_id = 0,
+    )
+  else:
+    xgb_gpu = xgb.XGBClassifier(n_estimators = n_estimators, random_state = random_state)
 
-"""###XGBoost Model"""
+  f_score = cross_val_score(xgb_gpu, x_train, y_train_cpy, cv = 5, scoring = scorer)
+  xgb_gpu.fit(x_train, y_train_cpy)
+  y_pred = xgb_gpu.predict(x_valid)
+  eval_model(y_valid_cpy, y_pred, True)
+
+  return [xgb_gpu, f_score]
+
+xgb_label_1, f_score_xgb_label_1 = xgb_model_gpu(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 50, 42)
+avg_f1_score_xgb_label_1 = f_score_xgb_label_1.mean()
+print(f"Average F1 score of RF cross validation: {avg_f1_score_xgb_label_1}.")
+label_1_scores.append([xgb_label_1, "XGBoost", avg_f1_score_xgb_label_1])
+
+"""###Support Vector Machine Model"""
 
 from sklearn.svm import SVC
 
 def svm_model(x_train: pd.DataFrame, y_train: pd.DataFrame, x_valid: pd.DataFrame, y_valid: pd.DataFrame, kernel: str):
   svm = SVC(kernel = kernel)
+  f_score = cross_val_score(svm, x_train, y_train, cv = 5, scoring = scorer)
   svm.fit(x_train, y_train)
   y_pred = svm.predict(x_valid)
-  f_score = eval_model(y_valid, y_pred)
+  eval_model(y_valid, y_pred, True)
   return [svm, f_score]
 
-f_scores_svm_label_1 = []
 kernels = ["linear", "rbf", "poly"]
 
 for i in range(3):
   kernel = kernels[i]
-  print(kernel.capitalize())
-  _, f_sc = svm_model(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, kernel)
-  f_scores_svm_label_1.append([kernel, f_sc])
+  Kernel = kernel.capitalize()
+  print(Kernel)
+  svm, f_sc = svm_model(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, kernel)
+  avg_f_sc = f_sc.mean()
+  print(f"Average F1 score of SVM {Kernel} cross validation: {avg_f_sc}.")
+  label_1_scores.append([svm, f"SVM {Kernel}", avg_f_sc])
   if (i!= 2): print()
+
+"""###Final Model"""
+
+for score in label_1_scores:
+  print(score[1:])
+
+def get_best_model(scores):
+  max_index = 0
+  for i in range(len(scores)):
+    if scores[i][2] > scores[max_index][2]:
+      max_index = i
+  return scores[max_index][0]
