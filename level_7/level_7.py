@@ -70,6 +70,9 @@ x_label_1.head()
 
 y_label_1.head()
 
+x_test_label_1 = test.iloc[:, 1:]
+x_test_label_1.head()
+
 """##Class Distribution"""
 
 import matplotlib.pyplot as plt
@@ -146,6 +149,8 @@ x_label_1 = x_label_1.drop(corr, axis = 1)
 
 x_valid_label_1 = x_valid_label_1.drop(corr, axis = 1)
 
+x_test_label_1 = x_test_label_1.drop(corr, axis = 1)
+
 """###Mutual Information Classification"""
 
 from sklearn.feature_selection import mutual_info_classif
@@ -161,8 +166,8 @@ mi_label_1 = plot_mi(x_label_1, y_label_1)
 """Observing the distribution of the graph, selecting features with mutual information scre greater than 0.06."""
 
 def feature_selection_mi(mi: pd.Series, x: pd.DataFrame, threshold: float) -> pd.DataFrame:
-  selected_features = mi_label_1[mi_label_1 > threshold]
-  print (f"Selected {selected_features.count()} features out of {len(mi_label_1)} features.")
+  selected_features = mi[mi > threshold]
+  print (f"Selected {selected_features.count()} features out of {len(mi)} features.")
   selected_cols = x.columns[selected_features.index]
   print(selected_cols)
   return selected_cols
@@ -171,6 +176,8 @@ selected_col_names_label_1 = feature_selection_mi(mi_label_1, x_label_1, 0.06)
 
 x_label_1_selected = pd.DataFrame(x_label_1, columns = selected_col_names_label_1)
 x_valid_label_1_selected = pd.DataFrame(x_valid_label_1, columns = selected_col_names_label_1)
+
+x_test_label_1_selected = pd.DataFrame(x_test_label_1, columns = selected_col_names_label_1)
 
 """##Modelling
 
@@ -255,11 +262,6 @@ import xgboost as xgb
 import torch
 
 def xgb_model_gpu(x_train, y_train, x_valid, y_valid, n_estimators, random_state):
-  y_train_cpy = y_train.copy(deep=True)
-  y_valid_cpy = y_valid.copy(deep=True)
-  y_train_cpy = y_train_cpy - 1
-  y_valid_cpy = y_valid_cpy - 1
-
   xgb_gpu = None
   if (torch.cuda.is_available()):
     xgb_gpu = xgb.XGBClassifier(
@@ -271,16 +273,22 @@ def xgb_model_gpu(x_train, y_train, x_valid, y_valid, n_estimators, random_state
   else:
     xgb_gpu = xgb.XGBClassifier(n_estimators = n_estimators, random_state = random_state)
 
-  f_score = cross_val_score(xgb_gpu, x_train, y_train_cpy, cv = 5, scoring = scorer)
-  xgb_gpu.fit(x_train, y_train_cpy)
+  f_score = cross_val_score(xgb_gpu, x_train, y_train, cv = 5, scoring = scorer)
+  xgb_gpu.fit(x_train, y_train)
   y_pred = xgb_gpu.predict(x_valid)
-  eval_model(y_valid_cpy, y_pred, True)
+  eval_model(y_valid, y_pred, True)
 
   return [xgb_gpu, f_score]
 
-xgb_label_1, f_score_xgb_label_1 = xgb_model_gpu(x_label_1_selected, y_label_1, x_valid_label_1_selected, y_valid_label_1, 50, 42)
+from sklearn.preprocessing import LabelEncoder
+
+label_1_encoder = LabelEncoder()
+y_label_1_encoded = label_1_encoder.fit_transform(y_label_1.copy(deep = True))
+y_valid_label_1_encoded = label_1_encoder.transform(y_valid_label_1.copy(deep = True))
+
+xgb_label_1, f_score_xgb_label_1 = xgb_model_gpu(x_label_1_selected, y_label_1_encoded, x_valid_label_1_selected, y_valid_label_1_encoded, 50, 42)
 avg_f1_score_xgb_label_1 = f_score_xgb_label_1.mean()
-print(f"Average F1 score of RF cross validation: {avg_f1_score_xgb_label_1}.")
+print(f"Average F1 score of XGB cross validation: {avg_f1_score_xgb_label_1}.")
 label_1_scores.append([xgb_label_1, "XGBoost", avg_f1_score_xgb_label_1])
 
 """###Support Vector Machine Model"""
@@ -317,4 +325,298 @@ def get_best_model(scores):
   for i in range(len(scores)):
     if scores[i][2] > scores[max_index][2]:
       max_index = i
-  return scores[max_index][0]
+  return scores[max_index]
+
+final_model_label_1, final_model_label_1_name, final_model_label_1_f1_score = get_best_model(label_1_scores)
+print(f"Selected {final_model_label_1_name} with cross validation score of {final_model_label_1_f1_score}.")
+y_test_pred_label_1 = final_model_label_1.predict(x_test_label_1_selected)
+
+def create_csv(y_pred, label_name):
+  output_filename = f"/content/drive/My Drive/Semester7/ML/Project/Layer_7/Results/{label_name}.csv"
+  combined_data = pd.DataFrame()
+  combined_data[label_name] = y_pred
+  combined_data.to_csv(output_filename, index=False)
+
+create_csv(y_test_pred_label_1, "label_1")
+
+"""#Label 2"""
+
+x_label_2 = train.iloc[:, : -4]
+y_label_2 = train["label_2"]
+x_valid_label_2 = valid.iloc[:, : -4]
+y_valid_label_2 = valid["label_2"]
+x_test_label_2 = test.iloc[:, 1:]
+
+"""## Class Distribition"""
+
+plot_class_distribution(y_label_2)
+
+"""The dataset is imbalanced. Therefore resampling is required. SMOTE will be used."""
+
+from imblearn.over_sampling import SMOTE
+
+smote = SMOTE(sampling_strategy='auto', random_state=42)
+x_label_2_resampled, y_label_2_resampled = smote.fit_resample(x_label_2, y_label_2)
+
+plot_class_distribution(y_label_2_resampled)
+
+"""##Feature Selection
+
+###Correlation
+"""
+
+x_label_2_resampled = x_label_2_resampled.drop(corr, axis = 1)
+x_valid_label_2 = x_valid_label_2.drop(corr, axis = 1)
+x_test_label_2 = x_test_label_2.drop(corr, axis = 1)
+
+"""###Mutual Information Classification"""
+
+mi_label_2 = plot_mi(x_label_2_resampled, y_label_2_resampled)
+
+"""The mutual information distribution is similar to `label 1`. Using the threshold as 0.06."""
+
+selected_col_names_label_2 = feature_selection_mi(mi_label_2, x_label_2_resampled, 0.06)
+
+x_label_2_selected = pd.DataFrame(x_label_2_resampled, columns = selected_col_names_label_2)
+x_valid_label_2_selected = pd.DataFrame(x_valid_label_2, columns = selected_col_names_label_2)
+x_test_label_2_selected = pd.DataFrame(x_test_label_2, columns = selected_col_names_label_2)
+
+"""##Modelling
+
+###KNN Model
+"""
+
+label_2_scores = []
+
+knn_label_2, f_score_knn_label_2 = knn_model(x_label_2_selected, y_label_2_resampled, x_valid_label_2_selected, y_valid_label_2, 13)
+avg_f1_score_knn_label_2 = f_score_knn_label_2.mean()
+print(f"Average F1 score of KNN cross validation: {avg_f1_score_knn_label_2}.")
+label_2_scores.append([knn_label_2, "KNN", avg_f1_score_knn_label_2])
+
+"""###Random Forest Model"""
+
+rf_label_2, f_score_rf_label_2 = rf_model(x_label_2_selected, y_label_2_resampled, x_valid_label_2_selected, y_valid_label_2, 100, 42)
+avg_f1_score_rf_label_2 = f_score_rf_label_2.mean()
+print(f"Average F1 score of RF cross validation: {avg_f1_score_rf_label_2}.")
+label_2_scores.append([rf_label_2, "Random Forest", avg_f1_score_rf_label_2])
+
+"""###XG Boost Model"""
+
+label_2_encoder = LabelEncoder()
+y_label_2_encoded = label_2_encoder.fit_transform(y_label_2_resampled.copy(deep = True))
+y_valid_label_2_encoded = label_2_encoder.transform(y_valid_label_2.copy(deep = True))
+
+xgb_label_2, f_score_xgb_label_2 = xgb_model_gpu(x_label_2_selected, y_label_2_encoded, x_valid_label_2_selected, y_valid_label_2_encoded, 50, 42)
+avg_f1_score_xgb_label_2 = f_score_xgb_label_2.mean()
+print(f"Average F1 score of XGB cross validation: {avg_f1_score_xgb_label_2}.")
+label_2_scores.append([xgb_label_2, "XGBoost", avg_f1_score_xgb_label_2])
+
+"""###SVM Model"""
+
+kernels = ["linear", "rbf", "poly"]
+
+for i in range(3):
+  kernel = kernels[i]
+  Kernel = kernel.capitalize()
+  print(Kernel)
+  svm, f_sc = svm_model(x_label_2_selected, y_label_2_resampled, x_valid_label_2_selected, y_valid_label_2, kernel)
+  avg_f_sc = f_sc.mean()
+  print(f"Average F1 score of SVM {Kernel} cross validation: {avg_f_sc}.")
+  label_2_scores.append([svm, f"SVM {Kernel}", avg_f_sc])
+  if (i!= 2): print()
+
+"""##Final Model"""
+
+for score in label_2_scores:
+  print(score[1:])
+
+final_model_label_2, final_model_label_2_name, final_model_label_2_f1_score = get_best_model(label_2_scores)
+print(f"Selected {final_model_label_2_name} with cross validation score of {final_model_label_2_f1_score}.")
+y_test_pred_label_2 = final_model_label_2.predict(x_test_label_2_selected)
+
+create_csv(y_test_pred_label_2, "label_2")
+
+"""#Label 3"""
+
+x_label_3 = train.iloc[:, : -4]
+y_label_3 = train["label_3"]
+x_valid_label_3 = valid.iloc[:, : -4]
+y_valid_label_3 = valid["label_3"]
+x_test_label_3 = test.iloc[:, 1:]
+
+"""##Class Distribution"""
+
+plot_class_distribution(y_label_3)
+
+"""This dataset is also imbalanced. Using SMOTE."""
+
+smote = SMOTE(sampling_strategy='auto', random_state=42)
+x_label_3_resampled, y_label_3_resampled = smote.fit_resample(x_label_3, y_label_3)
+
+plot_class_distribution(y_label_3_resampled)
+
+"""##Feature Selection
+
+###Correlation
+"""
+
+x_label_3_resampled = x_label_3_resampled.drop(corr, axis = 1)
+x_valid_label_3 = x_valid_label_3.drop(corr, axis = 1)
+x_test_label_3 = x_test_label_3.drop(corr, axis = 1)
+
+"""###Mutual Information Classification"""
+
+mi_label_3 = plot_mi(x_label_3_resampled, y_label_3_resampled)
+
+"""Observing the graph, drop the features with mutual information score less than to 0.01."""
+
+selected_col_names_label_3 = feature_selection_mi(mi_label_3, x_label_3_resampled, 0.01)
+
+x_label_3_selected = pd.DataFrame(x_label_3_resampled, columns = selected_col_names_label_3)
+x_valid_label_3_selected = pd.DataFrame(x_valid_label_3, columns = selected_col_names_label_3)
+x_test_label_3_selected = pd.DataFrame(x_test_label_3, columns = selected_col_names_label_3)
+
+"""##Modeling
+
+###KNN Model
+"""
+
+label_3_scores = []
+
+knn_label_3, f_score_knn_label_3 = knn_model(x_label_3_selected, y_label_3_resampled, x_valid_label_3_selected, y_valid_label_3, 13)
+avg_f1_score_knn_label_3 = f_score_knn_label_3.mean()
+print(f"Average F1 score of KNN cross validation: {avg_f1_score_knn_label_3}.")
+label_3_scores.append([knn_label_3, "KNN", avg_f1_score_knn_label_3])
+
+"""###Random Forest Model"""
+
+rf_label_3, f_score_rf_label_3 = rf_model(x_label_3_selected, y_label_3_resampled, x_valid_label_3_selected, y_valid_label_3, 100, 42)
+avg_f1_score_rf_label_3 = f_score_rf_label_3.mean()
+print(f"Average F1 score of RF cross validation: {avg_f1_score_rf_label_3}.")
+label_3_scores.append([rf_label_3, "Random Forest", avg_f1_score_rf_label_3])
+
+"""###XG Boost Model"""
+
+label_3_encoder = LabelEncoder()
+y_label_3_encoded = label_3_encoder.fit_transform(y_label_3_resampled.copy(deep = True))
+y_valid_label_3_encoded = label_3_encoder.transform(y_valid_label_3.copy(deep = True))
+
+xgb_label_3, f_score_xgb_label_3 = xgb_model_gpu(x_label_3_selected, y_label_3_encoded, x_valid_label_3_selected, y_valid_label_3_encoded, 50, 42)
+avg_f1_score_xgb_label_3 = f_score_xgb_label_3.mean()
+print(f"Average F1 score of XGB cross validation: {avg_f1_score_xgb_label_3}.")
+label_3_scores.append([xgb_label_3, "XGBoost", avg_f1_score_xgb_label_3])
+
+"""###SVM Model"""
+
+kernels = ["linear", "rbf", "poly"]
+
+for i in range(3):
+  kernel = kernels[i]
+  Kernel = kernel.capitalize()
+  print(Kernel)
+  svm, f_sc = svm_model(x_label_3_selected, y_label_3_resampled, x_valid_label_3_selected, y_valid_label_3, kernel)
+  avg_f_sc = f_sc.mean()
+  print(f"Average F1 score of SVM {Kernel} cross validation: {avg_f_sc}.")
+  label_3_scores.append([svm, f"SVM {Kernel}", avg_f_sc])
+  if (i!= 2): print()
+
+"""###Final Model"""
+
+for score in label_3_scores:
+  print(score[1:])
+
+final_model_label_3, final_model_label_3_name, final_model_label_3_f1_score = get_best_model(label_3_scores)
+print(f"Selected {final_model_label_3_name} with cross validation score of {final_model_label_3_f1_score}.")
+y_test_pred_label_3 = final_model_label_3.predict(x_test_label_3_selected)
+
+create_csv(y_test_pred_label_3, "label_3")
+
+"""#Label 4"""
+
+x_label_4 = train.iloc[:, : -4]
+y_label_4 = train["label_4"]
+x_valid_label_4 = valid.iloc[:, : -4]
+y_valid_label_4 = valid["label_4"]
+x_test_label_4 = test.iloc[:, 1:]
+
+"""##Class Distribution"""
+
+plot_class_distribution(y_label_4)
+
+"""Dataset is imbalanced. Using SMOTE."""
+
+smote = SMOTE(sampling_strategy='auto', random_state=42)
+x_label_4_resampled, y_label_4_resampled = smote.fit_resample(x_label_4, y_label_4)
+
+plot_class_distribution(y_label_4_resampled)
+
+"""##Feature Selection
+
+###Correlation
+"""
+
+x_label_4_resampled = x_label_4_resampled.drop(corr, axis = 1)
+x_valid_label_4 = x_valid_label_4.drop(corr, axis = 1)
+x_test_label_4 = x_test_label_4.drop(corr, axis = 1)
+
+"""###Mutual Information Classification
+
+Since now there is a large number of data points after SMOTE resampling, mutual information classification took a lot of time. Therefore, it was not used.
+
+
+###Principal Component Analysis
+"""
+
+from sklearn.decomposition import PCA
+
+pca = PCA(n_components = 0.95, svd_solver = 'full')
+pca.fit(x_label_4_resampled)
+x_label_4_selected = pd.DataFrame(pca.transform(x_label_4_resampled))
+x_valid_label_4_selected = pd.DataFrame(pca.transform(x_valid_label_4))
+x_test_label_4_selected = pd.DataFrame(pca.transform(x_test_label_4))
+x_label_4_selected.shape
+
+"""##Modelling
+
+###KNN Model
+"""
+
+label_4_scores = []
+
+knn_label_4, f_score_knn_label_4 = knn_model(x_label_4_selected, y_label_4_resampled, x_valid_label_4_selected, y_valid_label_4, 13)
+avg_f1_score_knn_label_4 = f_score_knn_label_4.mean()
+print(f"Average F1 score of KNN cross validation: {avg_f1_score_knn_label_4}.")
+label_4_scores.append([knn_label_4, "KNN", avg_f1_score_knn_label_4])
+
+"""###Random Forest Model"""
+
+rf_label_4, f_score_rf_label_4 = rf_model(x_label_4_selected, y_label_4_resampled, x_valid_label_4_selected, y_valid_label_4, 100, 42)
+avg_f1_score_rf_label_4 = f_score_rf_label_4.mean()
+print(f"Average F1 score of RF cross validation: {avg_f1_score_rf_label_4}.")
+label_4_scores.append([rf_label_4, "Random Forest", avg_f1_score_rf_label_4])
+
+"""###Final Model"""
+
+for score in label_4_scores:
+  print(score[1:])
+
+final_model_label_4, final_model_label_4_name, final_model_label_4_f1_score = get_best_model(label_4_scores)
+print(f"Selected {final_model_label_4_name} with cross validation score of {final_model_label_4_f1_score}.")
+y_test_pred_label_4 = final_model_label_4.predict(x_test_label_4_selected)
+
+create_csv(y_test_pred_label_4, "label_4")
+
+"""#Hyper Parameter Tuning
+
+Since all the selected models have accuracy for validation dataset greater than 0.8 and F1 scores for validation dataset as well as cross validation is acceptable, hyper parameter tuning was not considered.
+
+#Final Results
+"""
+
+output_filename = f"/content/drive/My Drive/Semester7/ML/Project/Layer_7/Results/final.csv"
+final_combined_data = pd.DataFrame()
+final_combined_data["ID"] = test["ID"]
+for i in range(1, 5):
+  label_name = f"label_{i}"
+  final_combined_data[label_name] = pd.read_csv(f"/content/drive/My Drive/Semester7/ML/Project/Layer_7/Results/{label_name}.csv")[label_name]
+final_combined_data.to_csv(output_filename, index=False)
